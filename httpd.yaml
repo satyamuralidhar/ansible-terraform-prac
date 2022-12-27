@@ -1,0 +1,8 @@
+---
+- name: Install Httpd
+  hosts: all
+  remote_user: satya
+  become: yes
+  roles:
+  - httpd 
+  

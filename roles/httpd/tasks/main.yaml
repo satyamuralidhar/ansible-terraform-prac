@@ -1,0 +1,11 @@
+---
+- name: Ensure Httpd is at the latest version
+  yum:
+    name: httpd
+    state: present
+    update_cache: yes
+- name: Make sure Httpd is running
+  service:
+    name: httpd
+    enabled: yes
+    state: restarted
