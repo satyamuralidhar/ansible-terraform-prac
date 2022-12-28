@@ -1,55 +1,40 @@
-data "azurerm_resource_group" "rsg" {
-  name = "ansiblersg"
+resource "azurerm_resource_group" "myrsg" {
+  name     = format("%s-%s",var.resourcegroup,terraform.workspace)
+  location = var.location
+  tags     = local.tags
 }
 
-data "azurerm_virtual_network" "vnet" {
-  name                = "ansiblersg-vnet"
-  resource_group_name = data.azurerm_resource_group.rsg.name
+resource "azurerm_virtual_network" "myvnet" {
+  name                = format("%s-%s-%s-%s", var.resourcegroup, var.location, "vnet",terraform.workspace)
+  resource_group_name = azurerm_resource_group.myrsg.name
+  location            = azurerm_resource_group.myrsg.location
+  address_space       = ["192.168.0.0/16"]
+  tags                = local.tags
 }
 
-data "azurerm_subnet" "subnet" {
-  name                 = "default"
-  virtual_network_name = data.azurerm_virtual_network.vnet.name
-  resource_group_name  = data.azurerm_resource_group.rsg.name
-}
-
-output "subnet_id" {
-  value = data.azurerm_subnet.subnet.id
-}
-
-resource "azurerm_route_table" "myrt" {
-  name = "internet-rt"
-  resource_group_name = data.azurerm_resource_group.rsg.name
-  location = data.azurerm_virtual_network.vnet.location
-
-  route {
-    address_prefix = "0.0.0.0/0"
-    name = "route1"
-    next_hop_type = "Internet"
-  }
-
-}
-
-resource "azurerm_subnet_route_table_association" "rtassociation" {
-  subnet_id = data.azurerm_subnet.subnet.id
-  route_table_id = azurerm_route_table.myrt.id
+resource "azurerm_subnet" "mysubnet" {
+  count                = length(var.subnet_cidr)
+  name                 = format("%s-%s-%s-%s","subnet",azurerm_resource_group.myrsg.location,terraform.workspace,count.index+1)
+  virtual_network_name = azurerm_virtual_network.myvnet.name
+  resource_group_name  = azurerm_resource_group.myrsg.name
+  address_prefixes     = element([var.subnet_cidr],count.index)
 }
 
 resource "azurerm_public_ip" "pip" {
   name                = format("%s-%s", "pip", terraform.workspace)
-  location            = data.azurerm_virtual_network.vnet.location
-  resource_group_name = data.azurerm_resource_group.rsg.name
+  location            = azurerm_virtual_network.myvnet.location
+  resource_group_name = azurerm_resource_group.myrsg.name
   allocation_method   = "Dynamic"
 }
 
 resource "azurerm_network_interface" "mynic" {
   name                = format("%s-%s", "mynic", terraform.workspace)
-  location            = data.azurerm_virtual_network.vnet.location
-  resource_group_name = data.azurerm_resource_group.rsg.name
+  location            = azurerm_virtual_network.myvnet.location
+  resource_group_name = azurerm_resource_group.myrsg.name
 
   ip_configuration {
     name                          = "mynicip"
-    subnet_id                     = data.azurerm_subnet.subnet.id
+    subnet_id                     = azurerm_subnet.mysubnet[0].id
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.pip.id
 
@@ -57,9 +42,9 @@ resource "azurerm_network_interface" "mynic" {
 }
 
 resource "azurerm_network_security_group" "nsg" {
-  resource_group_name = data.azurerm_resource_group.rsg.name
+  resource_group_name = azurerm_resource_group.myrsg.name
   name                = format("%s-%s", terraform.workspace, "nsg")
-  location            = data.azurerm_virtual_network.vnet.location
+  location            = azurerm_virtual_network.myvnet.location
   dynamic "security_rule" {
     for_each = var.nsg_rules
     content {
@@ -75,20 +60,21 @@ resource "azurerm_network_security_group" "nsg" {
     }
   }
 }
+
 resource "azurerm_network_interface_security_group_association" "nicassociation" {
   network_interface_id      = azurerm_network_interface.mynic.id
   network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
 resource "azurerm_subnet_network_security_group_association" "nsgassociation" {
-  subnet_id                 = data.azurerm_subnet.subnet.id
+  subnet_id                 = azurerm_subnet.mysubnet[0].id
   network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
 resource "azurerm_linux_virtual_machine" "myvm" {
-  name                  = format("%s-%s-%s", data.azurerm_resource_group.rsg.name, "mylinuxvm", terraform.workspace)
-  location              = data.azurerm_virtual_network.vnet.location
-  resource_group_name   = data.azurerm_resource_group.rsg.name
+  name                  = format("%s-%s-%s", azurerm_resource_group.myrsg.name, "mylinuxvm", terraform.workspace)
+  location              = azurerm_virtual_network.myvnet.location
+  resource_group_name   = azurerm_resource_group.myrsg.name
   size                  = "Standard_B1s"
   admin_username        = "satya"
   network_interface_ids = [azurerm_network_interface.mynic.id]
@@ -124,7 +110,7 @@ resource "azurerm_linux_virtual_machine" "myvm" {
     command = "chmod 400 ./id_rsa"
   }
   provisioner "local-exec" {
-    command = "ansible-playbook -i ${azurerm_linux_virtual_machine.myvm.public_ip_address}, --private-key id_rsa -vvv ./httpd.yaml"
+    command = "ansible-playbook -i ${azurerm_linux_virtual_machine.myvm.public_ip_address}, --private-key id_rsa ./httpd.yaml"
   }
 }
 

@@ -1,3 +1,11 @@
+variable "resourcegroup" {}
+
+
+variable "location" {}
+variable "subnet_cidr" {
+  type = list(string)
+}
+
 variable "nsg_rules" {
   type = list(object({
     name                       = string
