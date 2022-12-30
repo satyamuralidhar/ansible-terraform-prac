@@ -1,4 +1,2 @@
 #!/bin/bash
-# Run me with superuser privileges
-sudo useradd -m -p satya satya
-echo 'satya  ALL=(ALL:ALL) ALL' >> visudo
+sudo firewall-cmd --zone=public --add-service=http
